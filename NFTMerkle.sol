@@ -88,10 +88,9 @@ contract NFTMerkle is ERC721A {
      * @param initMintQuantity quantity of tokens to mint to the deployer
      *
      */
-    constructor(
-        uint256 initMintQuantity) ERC721A("NAME", "SYMBOL") {
-        _mintERC2309(msg.sender, initMintQuantity);
+    constructor(uint256 initMintQuantity) ERC721A("NAME", "SYMBOL") {
         PUBLIC_SALE_START_TIMESTAMP = block.timestamp + 7 days;
+        _mintERC2309(msg.sender, initMintQuantity);
     }
 
     // =============================================================
@@ -106,7 +105,7 @@ contract NFTMerkle is ERC721A {
      * Requirements:
      *
      * - Should only be used during public minting phase
-     * - Caller should not be a contract
+     * - Should not be called by a contract
      * - `quantity` should be greater than zero
      * - Minting `quantity` should not exceed total supply or public mint max limit
      * - Sufficient eth needs to be sent with the transaction
