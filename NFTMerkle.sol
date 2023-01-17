@@ -68,8 +68,8 @@ contract NFTMerkle is ERC721A {
         _;
     }
 
-    modifier publicSaleCompliance() {
-        _checkPublicSaleCompliance();
+    modifier publicSaleCompliance(uint256 quantity) {
+        _checkPublicSaleCompliance(quantity);
         _;
     }
 
@@ -112,14 +112,13 @@ contract NFTMerkle is ERC721A {
      *
      *
      */
-    function publicMint(
-        uint256 quantity
-    ) external payable notContract mintable(quantity) publicSaleCompliance {
-        require(
-            msg.value == PRICE_PER_MINT * quantity, 
-            "07"
-        );
-        
+    function publicMint(uint256 quantity) 
+        external 
+        payable 
+        notContract 
+        mintable(quantity) 
+        publicSaleCompliance(quantity) 
+    {
         _mint(msg.sender, quantity);
     }
 
@@ -167,13 +166,16 @@ contract NFTMerkle is ERC721A {
         );
     }
 
-    function _checkPublicSaleCompliance() private {
+    function _checkPublicSaleCompliance(uint256 quantity) private {
         require(
             block.timestamp >= PUBLIC_SALE_START_TIMESTAMP, 
             "00"
         );
-        
-        unchecked { _publicMints[msg.sender]++; }
+        require(
+            msg.value == PRICE_PER_MINT * quantity, 
+            "07"
+        );
+        unchecked { _publicMints[msg.sender]+= quantity; }
 
         require(
             _publicMints[msg.sender] <= PUBLIC_MINT_LIMIT_PER_WALLET, 
