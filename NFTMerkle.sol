@@ -204,8 +204,9 @@ contract NFTMerkle is ERC721A {
     }
     
     /**
+     * @dev Should return base url of collection metadata
      * NOTE: Replace with appropriate base uri of collection
-     *
+     */
     function _baseURI() internal view virtual override returns (string memory) {
         return "ipfs://________/";
     }
