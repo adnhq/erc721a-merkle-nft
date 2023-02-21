@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity >= 0.8.0; 
+pragma solidity =0.8.18; 
 
 import "https://github.com/chiru-labs/ERC721A/blob/main/contracts/ERC721A.sol";
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/cryptography/MerkleProof.sol";
@@ -13,67 +13,68 @@ import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contr
  * 
  * Assumptions:
  * - Max supply would not be exceeded within presale phase
- * 
- *
- * ERROR LOG:
- * 00 :- Presale currently active
- * 01 :- Exceeds mint limit
- * 02 :- Presale has ended
- * 03 :- Must be whitelisted
- * 04 :- Invalid quantity 
- * 05 :- Caller must not be contract
- * 06 :- Caller must be admin
- * 07 :- Incorrect value sent
- * 08 :- Already minted in presale
  *
  */
 
 contract NFTMerkle is ERC721A {
 
     // =============================================================
-    //                            STORAGE
+    //                          ERRORS
     // =============================================================
+
+    error AllowlistMintActive();
+
+    error PublicSaleActive();
+
+    error ExceedsMintLimit();
+
+    error NotInAllowlist();
+
+    error InvalidQuantity();
+
+    error CallerIsContract();
+
+    error MintClaimed();
+
+    error AccessDenied();
+
+    error IncorrectValueSent();
+
+    // =============================================================
+    //                          CONSTANTS
+    // =============================================================
+
+    bytes32 public constant   MERKLE_ROOT = 0x326fe0d8a70ab934a7bf9d1323c6d87ee37bbe70079f82e72203b1e07c0c185c;
+
     
-    uint256 public constant   COLLECTION_MAXIMUM_SUPPLY = 10000;
+    uint256 public constant   MAXIMUM_SUPPLY = 10000;
 
-    uint256 public constant   PUBLIC_MINT_LIMIT_PER_WALLET = 5;
-
-    uint256 public constant   PRESALE_MINT_LIMIT_PER_WALLET = 1;
+    uint256 public constant   PUBLIC_MINT_LIMIT = 5;
 
     uint256 public constant   PRICE_PER_MINT = 0.05 ether;
 
-    uint256 public immutable  PUBLIC_SALE_START_TIMESTAMP;
+    uint256 public immutable  PUBLIC_SALE_START_AT = block.timestamp + 7 days;
 
 
-    bytes32 public constant MERKLE_ROOT = 0x326fe0d8a70ab934a7bf9d1323c6d87ee37bbe70079f82e72203b1e07c0c185c;
-
-
-    address constant ADMIN_WALLET = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;
-
-
-    mapping(address => uint256) private _publicMints;
+    address internal constant ADMIN = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;
 
 
     // =============================================================
     //                            MODIFIERS
     // =============================================================
 
-    modifier mintable(uint256 quantity) {
-        _checkSupply(quantity);
-        _;
-    }
 
     modifier notContract() {
-        _checkCaller();
+        _checkCallerIsNotContract();
         _;
     }
 
-    modifier publicSaleCompliance(uint256 quantity) {
+    modifier pubCompliance(uint256 quantity) {
         _checkPublicSaleCompliance(quantity);
         _;
     }
 
-    modifier presaleCompliance() {
+    modifier preCompliance() {
         _checkPresaleCompliance();
         _;
     }
@@ -89,7 +90,6 @@ contract NFTMerkle is ERC721A {
      *
      */
     constructor(uint256 initMintQuantity) ERC721A("NAME", "SYMBOL") {
-        PUBLIC_SALE_START_TIMESTAMP = block.timestamp + 7 days;
         _mintERC2309(msg.sender, initMintQuantity);
     }
 
@@ -112,38 +112,45 @@ contract NFTMerkle is ERC721A {
      *
      *
      */
-    function publicMint(uint256 quantity) 
+    function mint(uint256 quantity) 
         external 
         payable 
         notContract 
-        mintable(quantity) 
-        publicSaleCompliance(quantity) 
+        pubCompliance(quantity) 
     {
         _mint(msg.sender, quantity);
     }
 
     /**
-     * @notice Mints `PRESALE_MINT_LIMIT_PER_WALLET` tokens to the caller
-     * @param merkleProof merkle proof to validate caller
+     * @notice Mints one token to the caller
+     * @param proofs merkle proofs to validate caller
      *
      *
      * Requirements:
      *
      * - Should only be used during presale minting phase
-     * - Caller should not be a contract
      * - Caller should be whitelisted
      * - Sufficient eth needs to be sent with the transaction
      *
      *
      */
-    function presaleMint(
-        bytes32[] calldata merkleProof
-    ) external payable notContract presaleCompliance {
-        require(
-            MerkleProof.verify(merkleProof, MERKLE_ROOT, keccak256(abi.encodePacked(msg.sender))),
-            "03"
-        );
+    function allowlistMint(bytes32[] calldata proofs) 
+        external 
+        payable  
+        preCompliance 
+    {
+
+        if(
+            !MerkleProof.verifyCalldata(
+                proofs, 
+                MERKLE_ROOT, 
+                keccak256(bytes.concat(keccak256(abi.encode(msg.sender))))
+            )
+        ) _revert(NotInAllowlist.selector);
         
+        
+        _setAux(msg.sender, 1);
+
         _mint(msg.sender, 1);
     }
 
@@ -151,92 +158,57 @@ contract NFTMerkle is ERC721A {
     //                      PRIVATE HELPERS
     // =============================================================
 
-    function _checkSupply(uint256 quantity) private view {
-        require(
-            quantity > 0 &&
-            totalSupply() + quantity <= COLLECTION_MAXIMUM_SUPPLY, 
-            "04"
-        );
-    }
-
-    function _checkCaller() private view {
-        require(
-            msg.sender == tx.origin, 
-            "05"
-        );
+    function _checkCallerIsNotContract() private view {
+        if(msg.sender != tx.origin) _revert(CallerIsContract.selector);
     }
 
     function _checkPublicSaleCompliance(uint256 quantity) private {
-        require(
-            block.timestamp >= PUBLIC_SALE_START_TIMESTAMP, 
-            "00"
-        );
-        require(
-            msg.value == PRICE_PER_MINT * quantity, 
-            "07"
-        );
-        unchecked { _publicMints[msg.sender]+= quantity; }
+        if(block.timestamp < PUBLIC_SALE_START_AT) _revert(AllowlistMintActive.selector);
 
-        require(
-            _publicMints[msg.sender] <= PUBLIC_MINT_LIMIT_PER_WALLET, 
-            "01"
-        );
+        if(quantity == 0 || _totalMinted() + quantity > MAXIMUM_SUPPLY) _revert(InvalidQuantity.selector);
+
+        if(msg.value != PRICE_PER_MINT * quantity) _revert(IncorrectValueSent.selector);
+
+        uint256 lim = _getAux(msg.sender) == 0 ? PUBLIC_MINT_LIMIT : PUBLIC_MINT_LIMIT + 1;
+
+        if(_numberMinted(msg.sender) + quantity > lim) _revert(ExceedsMintLimit.selector);
     }
 
     function _checkPresaleCompliance() private view {
-        require(
-            block.timestamp < PUBLIC_SALE_START_TIMESTAMP, 
-            "02"
-        );
-        require(
-            msg.value == PRICE_PER_MINT, 
-            "07"
-        );
-        require(
-            _numberMinted(msg.sender) == 0,
-             "08"
-        );
+        if(block.timestamp >= PUBLIC_SALE_START_AT) _revert(PublicSaleActive.selector);
+
+        if(msg.value != PRICE_PER_MINT) _revert(IncorrectValueSent.selector);
+        
+        if(_getAux(msg.sender) == 1) _revert(MintClaimed.selector);
     }
 
     function _authenticate() private view {
-        require(
-            msg.sender == ADMIN_WALLET, 
-            "06"
-        );
+        if(msg.sender != ADMIN) _revert(AccessDenied.selector);
     }
     
     /**
      * @dev Should return base url of collection metadata
-     * NOTE: Replace with appropriate base uri of collection
+     * NOTE: Replace with appropriate base uri of collection before use
      */
-    function _baseURI() internal view virtual override returns (string memory) {
-        return "ipfs://________/";
+    function _baseURI() 
+        internal 
+        view 
+        virtual 
+        override 
+        returns 
+    (string memory) {
+        return "ipfs://*************************************/";
     }
 
     // =============================================================
     //                      ADMIN ACCESS ONLY
-    // =============================================================
-
-
-    /**
-     * @notice Mints `quantity` tokens to the admin
-     * @param quantity the quantity of tokens to mint
-     *
-     * Requirements:
-     *
-     * - `quantity` should be greater than zero
-     * - Minting `quantity` should not exceed total supply
-     *
-     */
-    function adminMint(uint256 quantity) external payable auth mintable(quantity) {
-        _mint(msg.sender, quantity);
-    }   
+    // =============================================================  
 
     /**
      * @notice Transfers eth accumulated in this contract to the admin
      *
      */
-    function adminWithdraw() external payable auth {
+    function collectEth() external payable auth {
         payable(msg.sender).transfer(address(this).balance);
     }
 
