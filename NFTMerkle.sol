@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity =0.8.18; 
+pragma solidity >=0.8.18; 
 
-import "https://github.com/chiru-labs/ERC721A/blob/main/contracts/ERC721A.sol";
-import "https://github.com/transmissions11/solmate/blob/main/src/utils/MerkleProofLib.sol";
+import "./ERC721A.sol";
+import "./MerkleProof.sol";
 
 /**
  * @title ERC721A NFT implementation
@@ -119,11 +119,13 @@ contract NFTMerkle is ERC721A {
         presaleCompliance 
     {
 
-        if(!MerkleProofLib.verify(
+        if(!MerkleProof.verify(
             proof, 
             _MERKLE_ROOT, 
             keccak256(bytes.concat(keccak256(abi.encode(msg.sender))))
-        )) _revert(AccessDenied.selector);
+        )) {
+            _revert(AccessDenied.selector);
+        }
         
         
         _setAux(msg.sender, 1);
@@ -136,8 +138,12 @@ contract NFTMerkle is ERC721A {
     // =============================================================
 
     function _checkCallerIsNotContract() private view {
-        if(msg.sender != tx.origin) {
-            _revert(AccessDenied.selector);
+        bytes4 errorSelector = AccessDenied.selector;
+        assembly {
+            if iszero(eq(caller(), origin())) {
+                mstore(0x00, errorSelector)
+                revert(0x00, 0x04)
+            }
         }
     }
 
@@ -184,7 +190,7 @@ contract NFTMerkle is ERC721A {
         override 
         returns 
     (string memory) {
-        return "ipfs://--------------------------------/";
+        return "ipfs://************************/";
     }
 
     // =============================================================
@@ -196,14 +202,16 @@ contract NFTMerkle is ERC721A {
      *
      */
     function collectMintingFee() external payable {
-        if(msg.sender != _ADMIN) {
-            _revert(AccessDenied.selector);
-        }
-
         bool success;
+        bytes4 errorSelector = AccessDenied.selector;
 
         assembly {
-            success := call(gas(), _ADMIN, selfbalance(), 0, 0, 0, 0)
+            if iszero(eq(caller(), _ADMIN)) {
+                mstore(0x00, errorSelector)
+                revert(0x00, 0x04)
+            }
+
+            success := call(gas(), caller(), selfbalance(), 0, 0, 0, 0)
         }
 
         require(success);
