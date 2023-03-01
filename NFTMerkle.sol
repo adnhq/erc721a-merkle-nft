@@ -3,7 +3,7 @@
 pragma solidity =0.8.18; 
 
 import "https://github.com/chiru-labs/ERC721A/blob/main/contracts/ERC721A.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/cryptography/MerkleProof.sol";
+import "https://github.com/transmissions11/solmate/blob/main/src/utils/MerkleProofLib.sol";
 
 /**
  * @title ERC721A NFT implementation
@@ -21,21 +21,12 @@ contract NFTMerkle is ERC721A {
     //                           ERRORS
     // =============================================================
 
-    error AllowlistMintActive();
-
-    error PublicSaleActive();
-
+    error AllowlistMintOn();
+    error PublicMintOn();
     error ExceedsMintLimit();
-
     error AccessDenied();
-
-    error InvalidQuantity();
-
-    error CallerIsContract();
-
-    error AllowlistMintClaimed();
-
-    error IncorrectValueSent();
+    error ExceedsMaxSupply();
+    error IncorrectValue();
 
     // =============================================================
     //                          CONSTANTS
@@ -45,15 +36,10 @@ contract NFTMerkle is ERC721A {
 
     bytes32 private constant _MERKLE_ROOT = 0x326fe0d8a70ab934a7bf9d1323c6d87ee37bbe70079f82e72203b1e07c0c185c;
 
-
-    uint256 public constant  PUBLIC_SALE_START_AT = 1677650400;
-
+    uint256 public constant  PUBLIC_SALE_START_TIMESTAMP = 1677650400;
     uint256 public constant  MAXIMUM_SUPPLY = 10000;
-
-    uint256 public constant  PUBLIC_MINT_LIMIT = 5;
-
-    uint256 public constant  PRICE_PER_MINT = 50000000000000000;
-
+    uint256 public constant  PUBLIC_SALE_MINT_LIMIT = 5;
+    uint256 public constant  PRICE_PER_MINT = 0.05 ether;
     
     address private constant _ADMIN = 0x5B38Da6a701c568545dCfcB03FcB875f56beddC4;
 
@@ -68,12 +54,12 @@ contract NFTMerkle is ERC721A {
         _;
     }
 
-    modifier pubCompliance(uint256 quantity) {
+    modifier publicCompliance(uint256 quantity) {
         _checkPublicSaleCompliance(quantity);
         _;
     }
 
-    modifier preCompliance() {
+    modifier presaleCompliance() {
         _checkPresaleCompliance();
         _;
     }
@@ -83,9 +69,8 @@ contract NFTMerkle is ERC721A {
      * @param initMintQuantity quantity of tokens to mint to the deployer
      *
      */
-    constructor(uint256 initMintQuantity) ERC721A("NAME", "SYMBOL") {
-        _mintERC2309(msg.sender, initMintQuantity);
-    }
+    constructor(uint256 initMintQuantity) 
+    ERC721A("NAME", "SYMBOL") { _mintERC2309(msg.sender, initMintQuantity); }
 
     // =============================================================
     //                        MINT FUNCTIONS
@@ -110,14 +95,14 @@ contract NFTMerkle is ERC721A {
         external 
         payable 
         notContract 
-        pubCompliance(quantity) 
+        publicCompliance(quantity) 
     {
         _mint(msg.sender, quantity);
     }
 
     /**
      * @notice Mints one token to the caller
-     * @param proofs merkle proofs to validate caller
+     * @param proof merkle proof to validate caller
      *
      *
      * Requirements:
@@ -128,14 +113,14 @@ contract NFTMerkle is ERC721A {
      *
      *
      */
-    function allowlistMint(bytes32[] calldata proofs) 
+    function allowlistMint(bytes32[] calldata proof) 
         external 
         payable  
-        preCompliance 
+        presaleCompliance 
     {
 
-        if(!MerkleProof.verifyCalldata(
-            proofs, 
+        if(!MerkleProofLib.verify(
+            proof, 
             _MERKLE_ROOT, 
             keccak256(bytes.concat(keccak256(abi.encode(msg.sender))))
         )) _revert(AccessDenied.selector);
@@ -151,28 +136,42 @@ contract NFTMerkle is ERC721A {
     // =============================================================
 
     function _checkCallerIsNotContract() private view {
-        if(msg.sender != tx.origin) _revert(CallerIsContract.selector);
+        if(msg.sender != tx.origin) {
+            _revert(AccessDenied.selector);
+        }
     }
 
     function _checkPublicSaleCompliance(uint256 quantity) private view {
-        if(block.timestamp < PUBLIC_SALE_START_AT) _revert(AllowlistMintActive.selector);
+        if(block.timestamp < PUBLIC_SALE_START_TIMESTAMP) {
+            _revert(AllowlistMintOn.selector);
+        }
 
-        if(quantity == 0 || _totalMinted() + quantity > MAXIMUM_SUPPLY) _revert(InvalidQuantity.selector);
+        if(msg.value != PRICE_PER_MINT * quantity) {
+            _revert(IncorrectValue.selector);
+        }
 
-        if(msg.value != PRICE_PER_MINT * quantity) _revert(IncorrectValueSent.selector);
+        if(_totalMinted() + quantity > MAXIMUM_SUPPLY) {
+            _revert(ExceedsMaxSupply.selector);
+        }
 
-        uint256 lim = _getAux(msg.sender) == 0 ? PUBLIC_MINT_LIMIT : PUBLIC_MINT_LIMIT + 1;
-
-        if(_numberMinted(msg.sender) + quantity > lim) _revert(ExceedsMintLimit.selector);
+        if(_numberMinted(msg.sender) + quantity > (_getAux(msg.sender) == 0 ? PUBLIC_SALE_MINT_LIMIT : PUBLIC_SALE_MINT_LIMIT + 1)) {
+            _revert(ExceedsMintLimit.selector);
+        } 
     }
 
     function _checkPresaleCompliance() private view {
-        if(block.timestamp >= PUBLIC_SALE_START_AT) _revert(PublicSaleActive.selector);
+        if(block.timestamp >= PUBLIC_SALE_START_TIMESTAMP) {
+            _revert(PublicMintOn.selector);
+        }
 
-        if(msg.value != PRICE_PER_MINT) _revert(IncorrectValueSent.selector);
-        
-        if(_getAux(msg.sender) == 1) _revert(AllowlistMintClaimed.selector);
-    }
+        if(msg.value != PRICE_PER_MINT) {
+            _revert(IncorrectValue.selector);
+        }
+
+        if(_getAux(msg.sender) > 0) {
+            _revert(ExceedsMintLimit.selector);
+        }
+    }   
 
     /**
      * @dev Should return base url of collection metadata
@@ -185,7 +184,7 @@ contract NFTMerkle is ERC721A {
         override 
         returns 
     (string memory) {
-        return "ipfs://*************************************/";
+        return "ipfs://--------------------------------/";
     }
 
     // =============================================================
@@ -197,9 +196,18 @@ contract NFTMerkle is ERC721A {
      *
      */
     function collectMintingFee() external payable {
-        if(msg.sender != _ADMIN) _revert(AccessDenied.selector);
+        if(msg.sender != _ADMIN) {
+            _revert(AccessDenied.selector);
+        }
 
-        payable(msg.sender).transfer(address(this).balance);
+        bool success;
+
+        assembly {
+            success := call(gas(), _ADMIN, selfbalance(), 0, 0, 0, 0)
+        }
+
+        require(success);
     }
 
 }
+
