@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity >=0.8.18; 
+pragma solidity ^0.8.0; 
 
 import "https://github.com/chiru-labs/ERC721A/blob/main/contracts/ERC721A.sol";
 import "https://github.com/vectorized/solady/blob/main/src/utils/MerkleProofLib.sol";
@@ -13,6 +13,9 @@ import "https://github.com/vectorized/solady/blob/main/src/utils/MerkleProofLib.
  * Assumptions:
  * - Max supply would not be exceeded within allowlist mint phase
  *
+ * This is only a sample implementation with emphasis on reducing gas usage. 
+ * Modify as needed, add setter functions and change constants if required.
+ * Test the end product yourself before using in production.
  */
 
 contract NFTMerkle is ERC721A {
@@ -32,7 +35,7 @@ contract NFTMerkle is ERC721A {
     //                          CONSTANTS
     // =============================================================
 
-    /// @notice Sample values
+    /// @notice Sample values. Replace as needed.
 
     bytes32 private constant _MERKLE_ROOT = 0x326fe0d8a70ab934a7bf9d1323c6d87ee37bbe70079f82e72203b1e07c0c185c;
 
@@ -54,12 +57,9 @@ contract NFTMerkle is ERC721A {
         _;
     }
 
-    /**
-     * @param initMintQuantity quantity of tokens to mint to the deployer
-     *
-     */
-    constructor(uint256 initMintQuantity) 
-    ERC721A("NAME", "SYMBOL") { _mintERC2309(msg.sender, initMintQuantity); }
+    constructor() ERC721A("Example NFT", "ENFT") { 
+        _mintERC2309(msg.sender, 200); // Mints first 200 NFTs to deployer. Replace as needed
+    }
 
     // =============================================================
     //                        MINT FUNCTIONS
@@ -69,7 +69,6 @@ contract NFTMerkle is ERC721A {
      * @notice Mints `quantity` tokens to the caller
      * @param quantity the quantity of tokens to be minted
      *
-     *
      * Requirements:
      *
      * - Should only be used during public minting phase
@@ -77,8 +76,6 @@ contract NFTMerkle is ERC721A {
      * - `quantity` should be greater than zero
      * - Minting `quantity` should not exceed total supply or public mint max limit
      * - Sufficient eth needs to be sent with the transaction
-     *
-     *
      */
     function mint(uint256 quantity) 
         external 
@@ -108,14 +105,11 @@ contract NFTMerkle is ERC721A {
      * @notice Mints one token to the caller
      * @param proof merkle proof to validate caller
      *
-     *
      * Requirements:
      *
      * - Should only be used during presale minting phase
      * - Caller should be whitelisted
      * - Sufficient eth needs to be sent with the transaction
-     *
-     *
      */
     function allowlistMint(bytes32[] calldata proof) 
         external 
@@ -152,6 +146,9 @@ contract NFTMerkle is ERC721A {
     //                      PRIVATE HELPERS
     // =============================================================
 
+    /**
+     * @dev Reverts if caller is a smart contract
+     */
     function _checkCallerIsNotContract() private view {
         bytes4 errorSelector = AccessDenied.selector;
         assembly {
@@ -164,7 +161,7 @@ contract NFTMerkle is ERC721A {
 
     /**
      * @dev Should return base url of collection metadata
-     * NOTE: Replace with appropriate base uri of collection before use
+     * NOTE: Replace with appropriate base uri of collection before deploying
      */
     function _baseURI() 
         internal 
@@ -182,7 +179,6 @@ contract NFTMerkle is ERC721A {
 
     /**
      * @notice Transfers eth accumulated in this contract to the admin
-     *
      */
     function collectMintingFee() external payable {
         bool success;
